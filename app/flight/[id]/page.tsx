@@ -14,7 +14,7 @@ import { lookupAirport } from "@/lib/airports";
 import { estimateDriveTime, navUrl } from "@/lib/driveTime";
 import { getTsaInfo } from "@/lib/tsa";
 import { buildLeaveByPlan } from "@/lib/insights";
-import { analyzeTurnaround } from "@/lib/flightApi";
+import { analyzeTurnaround, fetchInboundByTail } from "@/lib/flightApi";
 import { getSettings, findInboundByTail } from "@/lib/actions";
 import { fmtDate, fmtTime, fmtTimeWithZone, delayMinutes, relTime, hoursBetweenZones } from "@/lib/utils";
 import { deleteFlight } from "@/lib/actions";
@@ -54,16 +54,42 @@ export default async function FlightDetail({ params }: { params: Promise<{ id: s
     : null;
   const navHref = home && flight.departureIata ? navUrl(home, flight.departureIata) : null;
 
-  // Auto-detect inbound: another tracked flight that lands before this
-  // one departs, on the same aircraft tail. No manual field required.
-  const inbound = await findInboundByTail(flight);
-  const inboundVerdict = inbound
+  // Inbound-aircraft detection — three strategies, best-data first:
+  //   1. Another *tracked* flight sharing the same tail (FREE, zero API call)
+  //   2. AeroAPI /aircraft/{tail}/flights (auto-finds the inbound leg)
+  //   3. None
+  const trackedInbound = await findInboundByTail(flight);
+  const inboundDep = flight.scheduledDep ?? flight.scheduledDate;
+  const aeroInbound =
+    !trackedInbound && flight.aircraftIata
+      ? await fetchInboundByTail(flight.aircraftIata, inboundDep)
+      : null;
+
+  const inboundForCard = trackedInbound
+    ? { kind: "tracked" as const, flight: trackedInbound }
+    : aeroInbound
+      ? { kind: "aero" as const, snapshot: aeroInbound }
+      : null;
+
+  const inboundVerdict = inboundForCard
     ? analyzeTurnaround({
-        outboundScheduledDep: flight.scheduledDep ?? flight.scheduledDate,
-        inboundEstimatedArr: inbound.estimatedArr,
-        inboundActualArr: inbound.actualArr,
-        inboundScheduledArr: inbound.scheduledArr,
-        inboundStatus: inbound.status,
+        outboundScheduledDep: inboundDep,
+        inboundEstimatedArr:
+          inboundForCard.kind === "tracked"
+            ? inboundForCard.flight.estimatedArr
+            : inboundForCard.snapshot.estimatedArr,
+        inboundActualArr:
+          inboundForCard.kind === "tracked"
+            ? inboundForCard.flight.actualArr
+            : inboundForCard.snapshot.actualArr,
+        inboundScheduledArr:
+          inboundForCard.kind === "tracked"
+            ? inboundForCard.flight.scheduledArr
+            : inboundForCard.snapshot.scheduledArr,
+        inboundStatus:
+          inboundForCard.kind === "tracked"
+            ? inboundForCard.flight.status
+            : inboundForCard.snapshot.status,
       })
     : null;
 
@@ -192,8 +218,8 @@ export default async function FlightDetail({ params }: { params: Promise<{ id: s
       )}
 
       {/* --- Same-plane inbound (auto-detected by tail number) --- */}
-      {inbound && inboundVerdict && (
-        <InboundCard inbound={inbound} verdict={inboundVerdict} />
+      {inboundForCard && inboundVerdict && (
+        <InboundCard source={inboundForCard} verdict={inboundVerdict} />
       )}
     </main>
   );

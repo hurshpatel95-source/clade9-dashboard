@@ -12,7 +12,8 @@ Built with **Next.js 14 + Prisma + Tailwind**. Deployable to Railway in
 ## Features
 
 - **Family-grouped tracking** — add people you care about, attach flights to them
-- **Live status** via [AviationStack](https://aviationstack.com) (free tier: 100 req/day)
+- **Live status** via [FlightAware AeroAPI](https://flightaware.com/aeroapi) (free tier: ~$5/mo credit, ~1000 queries)
+- **Auto inbound-aircraft detection** — AeroAPI's `/aircraft/{tail}/flights` endpoint tells us where the plane currently is, no manual lookup
 - **Live flight map** — origin, destination, and the plane's current position (Leaflet + CARTO tiles)
 - **Smart insights** — combines TSA wait + traffic-aware drive time + your gate buffer to tell you
   *"leave by 4:42 PM"*
@@ -34,7 +35,7 @@ npm install
 
 # 2. Create your env file
 cp .env.example .env
-# Edit .env and add at minimum AVIATIONSTACK_KEY (free at aviationstack.com)
+# Edit .env and add at minimum FLIGHTAWARE_KEY (free at aviationstack.com)
 
 # 3. Initialize the DB
 npx prisma db push
@@ -84,7 +85,7 @@ git push -u origin main
    - Start: `npm run start`
 3. **+ New → Database → PostgreSQL**. Railway will inject `DATABASE_URL` automatically.
 4. **Variables tab** — add:
-   - `AVIATIONSTACK_KEY` — required for live data
+   - `FLIGHTAWARE_KEY` — required for live data
    - `GOOGLE_MAPS_KEY` — *optional* but unlocks real traffic-aware drive times
 5. **Settings → Deploy → Pre-Deploy Command**:
    ```
@@ -106,7 +107,7 @@ Railway-provided host. Done.
 | Var | Required | Purpose |
 |---|---|---|
 | `DATABASE_URL` | ✅ | Postgres URL (Railway injects this); local dev defaults to SQLite |
-| `AVIATIONSTACK_KEY` | ✅ | Live flight status; free tier 100 req/day |
+| `FLIGHTAWARE_KEY` | ✅ | Live flight status; free tier 100 req/day |
 | `GOOGLE_MAPS_KEY` | ❌ | Real traffic-aware drive time (otherwise we use a straight-line estimate) |
 | `SHARED_PASSCODE` | ❌ | Reserved — light passcode gate, not yet wired in v1 |
 
@@ -149,7 +150,7 @@ app/
 components/              # FlightCard, InsightCard, InboundCard, TerminalCard, ...
 lib/
   airports.ts            # IATA → coords/tz/TSA + dining URLs
-  flightApi.ts           # AviationStack wrapper + turnaround analysis
+  flightApi.ts           # FlightAware AeroAPI wrapper + turnaround analysis
   driveTime.ts           # Google Distance Matrix (or Haversine fallback)
   tsa.ts                 # TSA wait estimate + official-link
   insights.ts            # leave-by planner

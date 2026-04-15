@@ -1,17 +1,17 @@
 /**
- * AviationStack wrapper.
+ * FlightAware AeroAPI wrapper.
  *
- * Free tier: 100 requests / day, HTTP only on the free plan.
- * Docs: https://aviationstack.com/documentation
+ * Free tier: $5/month in free credits (~1000 queries) — plenty for a
+ * family tracker. Quality of data is significantly better than
+ * AviationStack: accurate gates/terminals, live positions, and the
+ * `/aircraft/{tail}/flights` endpoint lets us auto-detect the inbound
+ * leg without the user tracking it.
  *
- * We intentionally keep the surface small — one fetch per flight number +
- * date — and cache the result on the Flight row. The dashboard refresh
- * button + a server action are the only callers, so we don't burn quota.
+ * Docs: https://flightaware.com/aeroapi/portal/documentation
+ * Auth: `x-apikey` header. Base URL: https://aeroapi.flightaware.com/aeroapi
  */
 
-const BASE = process.env.AVIATIONSTACK_KEY?.startsWith("live_")
-  ? "https://api.aviationstack.com/v1"
-  : "http://api.aviationstack.com/v1"; // free tier is HTTP-only
+const BASE = "https://aeroapi.flightaware.com/aeroapi";
 
 export type FlightSnapshot = {
   status?: string;
@@ -28,6 +28,7 @@ export type FlightSnapshot = {
   depTerminal?: string;
   arrGate?: string;
   arrTerminal?: string;
+  /** Aircraft registration / tail (e.g. "N789AN"). */
   aircraftIata?: string;
   liveLat?: number;
   liveLng?: number;
@@ -36,108 +37,146 @@ export type FlightSnapshot = {
   liveDirection?: number;
 };
 
-
-type AviationStackFlight = {
-  flight_status?: string;
-  airline?: { name?: string; iata?: string };
-  flight?: { iata?: string; number?: string };
-  departure?: {
-    iata?: string;
-    scheduled?: string;
-    estimated?: string;
-    actual?: string;
-    gate?: string;
-    terminal?: string;
-  };
-  arrival?: {
-    iata?: string;
-    scheduled?: string;
-    estimated?: string;
-    actual?: string;
-    gate?: string;
-    terminal?: string;
-  };
-  aircraft?: { iata?: string };
-  live?: {
+/** Subset of an AeroAPI flight record we actually consume. */
+type AeroFlight = {
+  ident?: string;
+  ident_iata?: string;
+  fa_flight_id?: string;
+  operator?: string;
+  operator_iata?: string;
+  registration?: string;
+  aircraft_type?: string;
+  origin?: { code_iata?: string; city?: string };
+  destination?: { code_iata?: string; city?: string };
+  scheduled_out?: string | null;
+  estimated_out?: string | null;
+  actual_out?: string | null;
+  scheduled_in?: string | null;
+  estimated_in?: string | null;
+  actual_in?: string | null;
+  gate_origin?: string | null;
+  terminal_origin?: string | null;
+  gate_destination?: string | null;
+  terminal_destination?: string | null;
+  status?: string;
+  progress_percent?: number;
+  last_position?: {
     latitude?: number;
     longitude?: number;
     altitude?: number;
-    speed_horizontal?: number;
-    direction?: number;
-  };
+    groundspeed?: number;
+    heading?: number;
+  } | null;
 };
 
-type AviationStackResponse = {
-  data?: AviationStackFlight[];
-  error?: { code: string; message: string };
-};
+// AeroAPI's `status` strings are user-facing ("En Route", "Scheduled",
+// "Arrived / Gate Arrival", …). Normalise to the short codes our UI
+// already understands.
+function normaliseStatus(s?: string): string | undefined {
+  if (!s) return undefined;
+  const lower = s.toLowerCase();
+  if (lower.includes("arriv") || lower.includes("landed")) return "landed";
+  if (lower.includes("en route") || lower.includes("in air") || lower.includes("taxi")) return "active";
+  if (lower.includes("cancel")) return "cancelled";
+  if (lower.includes("divert")) return "diverted";
+  if (lower.includes("delay") || lower.includes("scheduled")) return "scheduled";
+  return "scheduled";
+}
+
+function toSnapshot(f: AeroFlight): FlightSnapshot {
+  return {
+    status: normaliseStatus(f.status),
+    airline: f.operator ?? f.operator_iata,
+    departureIata: f.origin?.code_iata,
+    arrivalIata: f.destination?.code_iata,
+    scheduledDep: f.scheduled_out ?? undefined,
+    estimatedDep: f.estimated_out ?? undefined,
+    actualDep: f.actual_out ?? undefined,
+    scheduledArr: f.scheduled_in ?? undefined,
+    estimatedArr: f.estimated_in ?? undefined,
+    actualArr: f.actual_in ?? undefined,
+    depGate: f.gate_origin ?? undefined,
+    depTerminal: f.terminal_origin ?? undefined,
+    arrGate: f.gate_destination ?? undefined,
+    arrTerminal: f.terminal_destination ?? undefined,
+    aircraftIata: f.registration ?? undefined,
+    liveLat: f.last_position?.latitude,
+    liveLng: f.last_position?.longitude,
+    liveAltitude: f.last_position?.altitude,
+    liveSpeed: f.last_position?.groundspeed,
+    liveDirection: f.last_position?.heading,
+  };
+}
+
+async function aero<T>(path: string): Promise<T | null> {
+  const key = process.env.FLIGHTAWARE_KEY;
+  if (!key) return null;
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "x-apikey": key, Accept: "application/json" },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    console.error(`AeroAPI ${path} → ${res.status}`);
+    return null;
+  }
+  return (await res.json()) as T;
+}
 
 /**
- * Look up the latest snapshot for a flight number.
- * `date` is the local departure date (YYYY-MM-DD) — AviationStack accepts
- * `flight_date` as a filter; if omitted it returns the most recent.
+ * Look up the latest snapshot for a flight number on a given date.
+ * `date` should be YYYY-MM-DD (departure date, local to origin).
  */
 export async function fetchFlightSnapshot(
   flightNumber: string,
   date?: string,
 ): Promise<FlightSnapshot | null> {
-  const key = process.env.AVIATIONSTACK_KEY;
-  if (!key) {
-    // No key configured — return null so callers can show "set your API key"
-    // rather than crash.
-    return null;
+  // Optional date filter: AeroAPI uses ISO8601 bounds.
+  const qp = new URLSearchParams();
+  if (date) {
+    qp.set("start", `${date}T00:00:00Z`);
+    qp.set("end", `${date}T23:59:59Z`);
   }
-
-  const params = new URLSearchParams({
-    access_key: key,
-    flight_iata: flightNumber.toUpperCase(),
-    limit: "1",
-  });
-  if (date) params.set("flight_date", date);
-
-  const url = `${BASE}/flights?${params.toString()}`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) return null;
-
-  const json = (await res.json()) as AviationStackResponse;
-  if (json.error) {
-    console.error("AviationStack error:", json.error);
-    return null;
-  }
-  const f = json.data?.[0];
+  const json = await aero<{ flights?: AeroFlight[] }>(
+    `/flights/${encodeURIComponent(flightNumber)}${qp.toString() ? `?${qp}` : ""}`,
+  );
+  const f = json?.flights?.[0];
   if (!f) return null;
-
-  return {
-    status: f.flight_status,
-    airline: f.airline?.name,
-    departureIata: f.departure?.iata,
-    arrivalIata: f.arrival?.iata,
-    scheduledDep: f.departure?.scheduled,
-    estimatedDep: f.departure?.estimated,
-    actualDep: f.departure?.actual,
-    scheduledArr: f.arrival?.scheduled,
-    estimatedArr: f.arrival?.estimated,
-    actualArr: f.arrival?.actual,
-    depGate: f.departure?.gate,
-    depTerminal: f.departure?.terminal,
-    arrGate: f.arrival?.gate,
-    arrTerminal: f.arrival?.terminal,
-    aircraftIata: f.aircraft?.iata,
-    liveLat: f.live?.latitude,
-    liveLng: f.live?.longitude,
-    liveAltitude: f.live?.altitude,
-    liveSpeed: f.live?.speed_horizontal,
-    liveDirection: f.live?.direction,
-  };
+  return toSnapshot(f);
 }
 
 /**
- * Compare the inbound aircraft's projected arrival to the outbound's
- * scheduled departure and return a human verdict.
+ * Auto-detect the inbound leg flown by the same aircraft.
  *
- * Airlines typically need ≥45 min on the ground for a turn — if the inbound
- * lands less than that before scheduled departure, expect a delay.
+ * Given a tail registration and the outbound flight's scheduled
+ * departure, find the most recent leg that lands before it. This is
+ * the killer feature: we don't need the user to track the inbound
+ * flight separately — one API call surfaces it.
  */
+export async function fetchInboundByTail(
+  tail: string,
+  beforeDeparture: Date,
+): Promise<FlightSnapshot | null> {
+  const json = await aero<{ flights?: AeroFlight[] }>(
+    `/aircraft/${encodeURIComponent(tail)}/flights?max_pages=1`,
+  );
+  if (!json?.flights?.length) return null;
+
+  // AeroAPI returns newest first. Find the most recent flight that
+  // lands *before* our outbound pushes back.
+  const cutoff = beforeDeparture.getTime();
+  for (const f of json.flights) {
+    const arr =
+      f.actual_in ?? f.estimated_in ?? f.scheduled_in ?? null;
+    if (!arr) continue;
+    if (new Date(arr).getTime() <= cutoff) {
+      return toSnapshot(f);
+    }
+  }
+  return null;
+}
+
+// ---------- Turnaround analysis -----------------------------------------
+
 export type TurnaroundVerdict = {
   status: "ok" | "tight" | "late" | "unknown";
   groundMinutes: number | null;
@@ -180,4 +219,3 @@ export function analyzeTurnaround(args: {
   }
   return { status: "late", groundMinutes: ground, message: `Inbound lands ${Math.abs(ground)} min after your scheduled departure — delay likely` };
 }
-
