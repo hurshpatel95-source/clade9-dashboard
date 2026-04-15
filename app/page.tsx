@@ -1,8 +1,7 @@
-import { Suspense } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { FlightCard } from "@/components/FlightCard";
-import { AddFlightDialog } from "@/components/AddFlightDialog";
+import { AddTripDialog } from "@/components/AddTripDialog";
 import { Sparkles, Plane, Settings as SettingsIcon } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -44,13 +43,19 @@ export default async function Dashboard() {
               : `${inAir.length} in air · ${today.length} today · ${upcoming.length} upcoming`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-2 sm:flex">
           <Link href="/settings" className="btn-ghost">
             <SettingsIcon className="h-4 w-4" />
           </Link>
-          <AddFlightDialog family={family.map((f) => ({ id: f.id, name: f.name }))} />
+          <AddTripDialog family={family.map((f) => ({ id: f.id, name: f.name }))} />
         </div>
       </section>
+
+      {/* Mobile floating action button */}
+      <AddTripDialog
+        family={family.map((f) => ({ id: f.id, name: f.name }))}
+        variant="fab"
+      />
 
       {flights.length === 0 && <EmptyState />}
 
@@ -100,7 +105,7 @@ function Section({
         {tone === "emerald" && <span className="h-2 w-2 animate-pulse-slow rounded-full bg-emerald-500" />}
         {title}
       </h2>
-      <div className="grid gap-3 sm:grid-cols-2">{children}</div>
+      <div className="grid gap-3 md:grid-cols-2">{children}</div>
     </section>
   );
 }

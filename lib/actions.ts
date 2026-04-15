@@ -147,6 +147,51 @@ export async function deleteFlight(id: string) {
 }
 
 /**
+ * Bulk-add: each leg is one flight. Used by the "Add trip" mobile sheet
+ * so a round-trip (or a multi-leg connection) can be saved in one tap.
+ *
+ * The form serializes legs as `legs[0][flightNumber]`, `legs[0][scheduledDate]`,
+ * `legs[0][familyMemberId]`, etc.
+ */
+export async function saveFlights(formData: FormData) {
+  const legs: Array<{
+    flightNumber: string;
+    scheduledDate: Date;
+    familyMemberId: string | null;
+    inboundFlightNumber: string | null;
+    notes: string | null;
+  }> = [];
+
+  // Walk index 0..N until we run out of flight numbers.
+  for (let i = 0; ; i++) {
+    const fn = formData.get(`legs[${i}][flightNumber]`) as string | null;
+    if (!fn) break;
+    const date = formData.get(`legs[${i}][scheduledDate]`) as string | null;
+    if (!date) continue;
+    legs.push({
+      flightNumber: fn.toUpperCase().replace(/\s+/g, ""),
+      scheduledDate: new Date(date),
+      familyMemberId: ((formData.get(`legs[${i}][familyMemberId]`) as string) || null) || null,
+      inboundFlightNumber:
+        ((formData.get(`legs[${i}][inboundFlightNumber]`) as string) || "").toUpperCase().replace(/\s+/g, "") || null,
+      notes: (formData.get(`legs[${i}][notes]`) as string) || null,
+    });
+  }
+
+  if (legs.length === 0) return;
+
+  const created = await prisma.$transaction(
+    legs.map((leg) => prisma.flight.create({ data: leg })),
+  );
+
+  // Fire snapshots for each, but don't block the user on rate-limited calls.
+  await Promise.allSettled(created.map((f) => refreshFlight(f.id)));
+
+  revalidatePath("/");
+  revalidatePath("/family");
+}
+
+/**
  * Pull a fresh snapshot from AviationStack and persist it.
  * Also refreshes the inbound aircraft leg if `inboundFlightNumber` is set.
  */

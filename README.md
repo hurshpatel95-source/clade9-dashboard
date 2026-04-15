@@ -112,10 +112,27 @@ Railway-provided host. Done.
 
 ---
 
+## Seeding example data
+
+A starter `prisma/seed.ts` pre-fills:
+
+- Home location: 16 Stevenson Dr, Marlboro NJ
+- Family member: Hursh
+- AA 66 JFK → BCN today, gate 45, terminal 8
+
+Run after the DB is up:
+
+```bash
+npx prisma db seed
+```
+
+Edit `prisma/seed.ts` to change. Refine the home lat/lng inside the
+deployed app at `/settings`.
+
 ## What's intentionally not in v1
 
 - **Auth** — single shared account; gate with `SHARED_PASSCODE` later or wire up Clerk/Auth.js
-- **Push notifications / SMS** — easy phase 2 with Twilio + a cron that re-runs `refreshFlight`
+- **Push notifications** — planned via PWA + Web Push (free, no Twilio). Phase 2.
 - **Auto-detect of inbound aircraft** — for now, paste the inbound flight number manually
   (FlightAware shows it as *"Aircraft last seen on…"*)
 
