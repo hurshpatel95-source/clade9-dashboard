@@ -6,8 +6,10 @@ generator client {
 }
 
 datasource db {
-  // Swap to "postgresql" when deploying to Vercel/Neon/Supabase.
-  provider = "sqlite"
+  // Using Postgres so it works on Railway. DATABASE_URL is injected by
+  // Railway when you attach a Postgres plugin. For local dev, either
+  // run a local Postgres or use Railway's DATABASE_URL via `railway run`.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
