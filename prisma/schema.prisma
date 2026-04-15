@@ -68,20 +68,6 @@ model Flight {
   liveSpeed       Float?
   liveDirection   Float?
   lastSyncedAt    DateTime?
-  // --- Inbound-aircraft tracking ----------------------------------
-  // The flight number of the previous leg flown by the same aircraft.
-  // If that leg is delayed, this departure almost certainly will be too.
-  // User can fill it in manually (FlightAware shows it) or we try to
-  // auto-detect via tail number on refresh.
-  inboundFlightNumber  String?
-  inboundStatus        String?
-  inboundDepIata       String?
-  inboundArrIata       String?
-  inboundScheduledArr  DateTime?
-  inboundEstimatedArr  DateTime?
-  inboundActualArr     DateTime?
-  inboundLiveLat       Float?
-  inboundLiveLng       Float?
   // Relations
   familyMember    FamilyMember? @relation(fields: [familyMemberId], references: [id], onDelete: SetNull)
   familyMemberId  String?
@@ -90,4 +76,5 @@ model Flight {
 
   @@index([familyMemberId])
   @@index([scheduledDate])
+  @@index([aircraftIata])
 }

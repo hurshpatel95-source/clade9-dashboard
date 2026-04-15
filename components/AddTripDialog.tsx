@@ -10,7 +10,6 @@ type Leg = {
   flightNumber: string;
   scheduledDate: string;
   familyMemberId: string;
-  inboundFlightNumber: string;
   notes: string;
 };
 
@@ -18,7 +17,6 @@ const blankLeg = (date: string): Leg => ({
   flightNumber: "",
   scheduledDate: date,
   familyMemberId: "",
-  inboundFlightNumber: "",
   notes: "",
 });
 
@@ -159,38 +157,17 @@ export function AddTripDialog({
                         </select>
                       </div>
 
-                      <details className="rounded-xl bg-zinc-50 dark:bg-zinc-900/60">
-                        <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-zinc-500">
-                          More options
-                        </summary>
-                        <div className="space-y-3 px-3 pb-3">
-                          <div>
-                            <label className="label">Inbound flight #</label>
-                            <input
-                              name={`legs[${i}][inboundFlightNumber]`}
-                              value={leg.inboundFlightNumber}
-                              onChange={(e) => update(i, { inboundFlightNumber: e.target.value })}
-                              placeholder="UA456"
-                              autoCapitalize="characters"
-                              className="input mt-1 font-mono uppercase"
-                            />
-                            <p className="mt-1 text-[11px] text-zinc-500">
-                              Track the previous leg of the same plane (find on FlightAware).
-                            </p>
-                          </div>
-                          <div>
-                            <label className="label">Notes</label>
-                            <textarea
-                              name={`legs[${i}][notes]`}
-                              value={leg.notes}
-                              onChange={(e) => update(i, { notes: e.target.value })}
-                              rows={2}
-                              className="input mt-1"
-                              placeholder="e.g. Mom visiting for Easter"
-                            />
-                          </div>
-                        </div>
-                      </details>
+                      <div>
+                        <label className="label">Notes</label>
+                        <textarea
+                          name={`legs[${i}][notes]`}
+                          value={leg.notes}
+                          onChange={(e) => update(i, { notes: e.target.value })}
+                          rows={2}
+                          className="input mt-1"
+                          placeholder="e.g. Mom visiting for Easter"
+                        />
+                      </div>
                     </div>
                   </div>
                 ))}

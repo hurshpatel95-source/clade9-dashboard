@@ -36,17 +36,6 @@ export type FlightSnapshot = {
   liveDirection?: number;
 };
 
-/** Snapshot of the *inbound* leg flown by the same aircraft. */
-export type InboundSnapshot = {
-  status?: string;
-  departureIata?: string;
-  arrivalIata?: string;
-  scheduledArr?: string;
-  estimatedArr?: string;
-  actualArr?: string;
-  liveLat?: number;
-  liveLng?: number;
-};
 
 type AviationStackFlight = {
   flight_status?: string;
@@ -139,32 +128,6 @@ export async function fetchFlightSnapshot(
     liveAltitude: f.live?.altitude,
     liveSpeed: f.live?.speed_horizontal,
     liveDirection: f.live?.direction,
-  };
-}
-
-/**
- * Fetch the inbound leg flown by the same aircraft.
- *
- * The user supplies the inbound flight number manually (FlightAware shows
- * it on the flight detail page as "Aircraft last seen on …"). This call
- * grabs that flight's status so we can answer "is the plane going to be
- * on time to my gate?".
- */
-export async function fetchInboundSnapshot(
-  inboundFlightNumber: string,
-  date?: string,
-): Promise<InboundSnapshot | null> {
-  const snap = await fetchFlightSnapshot(inboundFlightNumber, date);
-  if (!snap) return null;
-  return {
-    status: snap.status,
-    departureIata: snap.departureIata,
-    arrivalIata: snap.arrivalIata,
-    scheduledArr: snap.scheduledArr,
-    estimatedArr: snap.estimatedArr,
-    actualArr: snap.actualArr,
-    liveLat: snap.liveLat,
-    liveLng: snap.liveLng,
   };
 }
 

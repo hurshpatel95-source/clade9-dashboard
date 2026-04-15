@@ -15,7 +15,7 @@ import { estimateDriveTime, navUrl } from "@/lib/driveTime";
 import { getTsaInfo } from "@/lib/tsa";
 import { buildLeaveByPlan } from "@/lib/insights";
 import { analyzeTurnaround } from "@/lib/flightApi";
-import { getSettings } from "@/lib/actions";
+import { getSettings, findInboundByTail } from "@/lib/actions";
 import { fmtDate, fmtTime, fmtTimeWithZone, delayMinutes, relTime, hoursBetweenZones } from "@/lib/utils";
 import { deleteFlight } from "@/lib/actions";
 
@@ -64,13 +64,16 @@ export default async function FlightDetail({ params }: { params: Promise<{ id: s
     : null;
   const navHref = home && flight.departureIata ? navUrl(home, flight.departureIata) : null;
 
-  const inboundVerdict = flight.inboundFlightNumber
+  // Auto-detect inbound: another tracked flight that lands before this
+  // one departs, on the same aircraft tail. No manual field required.
+  const inbound = await findInboundByTail(flight);
+  const inboundVerdict = inbound
     ? analyzeTurnaround({
         outboundScheduledDep: flight.scheduledDep ?? flight.scheduledDate,
-        inboundEstimatedArr: flight.inboundEstimatedArr,
-        inboundActualArr: flight.inboundActualArr,
-        inboundScheduledArr: flight.inboundScheduledArr,
-        inboundStatus: flight.inboundStatus,
+        inboundEstimatedArr: inbound.estimatedArr,
+        inboundActualArr: inbound.actualArr,
+        inboundScheduledArr: inbound.scheduledArr,
+        inboundStatus: inbound.status,
       })
     : null;
 
@@ -198,18 +201,9 @@ export default async function FlightDetail({ params }: { params: Promise<{ id: s
         <TerminalCard airport={dep} gate={flight.depGate} terminal={flight.depTerminal} />
       )}
 
-      {/* --- Inbound aircraft --- */}
-      {flight.inboundFlightNumber && inboundVerdict && (
-        <InboundCard
-          inboundFlightNumber={flight.inboundFlightNumber}
-          status={flight.inboundStatus}
-          depIata={flight.inboundDepIata}
-          arrIata={flight.inboundArrIata}
-          scheduledArr={flight.inboundScheduledArr}
-          estimatedArr={flight.inboundEstimatedArr}
-          actualArr={flight.inboundActualArr}
-          verdict={inboundVerdict}
-        />
+      {/* --- Same-plane inbound (auto-detected by tail number) --- */}
+      {inbound && inboundVerdict && (
+        <InboundCard inbound={inbound} verdict={inboundVerdict} />
       )}
     </main>
   );

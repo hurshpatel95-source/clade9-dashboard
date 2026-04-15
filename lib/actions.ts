@@ -4,10 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "./db";
-import {
-  fetchFlightSnapshot,
-  fetchInboundSnapshot,
-} from "./flightApi";
+import { fetchFlightSnapshot } from "./flightApi";
 
 // ---------- Settings ------------------------------------------------------
 
@@ -99,12 +96,6 @@ const FlightInput = z.object({
     .transform((v) => v.toUpperCase().replace(/\s+/g, "")),
   scheduledDate: z.string().min(1, "Date required"),
   familyMemberId: z.string().optional().nullable(),
-  inboundFlightNumber: z
-    .string()
-    .max(10)
-    .transform((v) => (v ? v.toUpperCase().replace(/\s+/g, "") : v))
-    .optional()
-    .nullable(),
   notes: z.string().max(1000).optional().nullable(),
 });
 
@@ -114,7 +105,6 @@ export async function saveFlight(formData: FormData) {
     flightNumber: formData.get("flightNumber"),
     scheduledDate: formData.get("scheduledDate"),
     familyMemberId: (formData.get("familyMemberId") as string) || null,
-    inboundFlightNumber: (formData.get("inboundFlightNumber") as string) || null,
     notes: (formData.get("notes") as string) || null,
   });
 
@@ -122,7 +112,6 @@ export async function saveFlight(formData: FormData) {
     flightNumber: parsed.flightNumber,
     scheduledDate: new Date(parsed.scheduledDate),
     familyMemberId: parsed.familyMemberId || null,
-    inboundFlightNumber: parsed.inboundFlightNumber || null,
     notes: parsed.notes || null,
   };
 
@@ -158,7 +147,6 @@ export async function saveFlights(formData: FormData) {
     flightNumber: string;
     scheduledDate: Date;
     familyMemberId: string | null;
-    inboundFlightNumber: string | null;
     notes: string | null;
   }> = [];
 
@@ -172,8 +160,6 @@ export async function saveFlights(formData: FormData) {
       flightNumber: fn.toUpperCase().replace(/\s+/g, ""),
       scheduledDate: new Date(date),
       familyMemberId: ((formData.get(`legs[${i}][familyMemberId]`) as string) || null) || null,
-      inboundFlightNumber:
-        ((formData.get(`legs[${i}][inboundFlightNumber]`) as string) || "").toUpperCase().replace(/\s+/g, "") || null,
       notes: (formData.get(`legs[${i}][notes]`) as string) || null,
     });
   }
@@ -193,7 +179,8 @@ export async function saveFlights(formData: FormData) {
 
 /**
  * Pull a fresh snapshot from AviationStack and persist it.
- * Also refreshes the inbound aircraft leg if `inboundFlightNumber` is set.
+ * Related inbound flights are auto-detected at render time by matching
+ * aircraft tail number — no separate fetch needed.
  */
 export async function refreshFlight(id: string) {
   const f = await prisma.flight.findUnique({ where: { id } });
@@ -228,23 +215,35 @@ export async function refreshFlight(id: string) {
     });
   }
 
-  if (f.inboundFlightNumber) {
-    const inb = await fetchInboundSnapshot(f.inboundFlightNumber, ymd);
-    if (inb) {
-      Object.assign(update, {
-        inboundStatus: inb.status,
-        inboundDepIata: inb.departureIata,
-        inboundArrIata: inb.arrivalIata,
-        inboundScheduledArr: inb.scheduledArr ? new Date(inb.scheduledArr) : null,
-        inboundEstimatedArr: inb.estimatedArr ? new Date(inb.estimatedArr) : null,
-        inboundActualArr: inb.actualArr ? new Date(inb.actualArr) : null,
-        inboundLiveLat: inb.liveLat,
-        inboundLiveLng: inb.liveLng,
-      });
-    }
-  }
-
   await prisma.flight.update({ where: { id }, data: update });
   revalidatePath("/");
   revalidatePath(`/flight/${id}`);
+}
+
+/**
+ * Auto-link: given a flight, find another tracked flight that arrived
+ * recently on the same aircraft. Cheap query — we index aircraftIata.
+ */
+export async function findInboundByTail(flight: {
+  id: string;
+  aircraftIata?: string | null;
+  scheduledDep?: Date | null;
+  scheduledDate: Date;
+}) {
+  if (!flight.aircraftIata) return null;
+  const depCutoff = flight.scheduledDep ?? flight.scheduledDate;
+  return prisma.flight.findFirst({
+    where: {
+      id: { not: flight.id },
+      aircraftIata: flight.aircraftIata,
+      // Must arrive BEFORE this flight departs.
+      OR: [
+        { scheduledArr: { lte: depCutoff } },
+        { estimatedArr: { lte: depCutoff } },
+        { actualArr: { lte: depCutoff } },
+      ],
+    },
+    orderBy: { scheduledArr: "desc" },
+    include: { familyMember: true },
+  });
 }
