@@ -1,0 +1,91 @@
+// Prisma schema for the Flight Tracker dashboard.
+// Single shared account model — no users table.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // Swap to "postgresql" when deploying to Vercel/Neon/Supabase.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Single-row settings table. Holds the shared "home" / pickup location
+// used to calculate drive-time-to-airport. We always read/write the row
+// with id = "default".
+model Settings {
+  id         String   @id @default("default")
+  homeLabel  String?  // e.g. "Home", "Office", "Hotel in SF"
+  homeLat    Float?
+  homeLng    Float?
+  // Minutes the user wants to be at the gate *before* scheduled departure.
+  // 60 is a sensible default for domestic; bump for international.
+  gateBufferMinutes Int @default(60)
+  updatedAt  DateTime @updatedAt
+}
+
+model FamilyMember {
+  id        String   @id @default(cuid())
+  name      String
+  emoji     String?  // e.g. "👩" or "👨" — used as avatar fallback
+  color     String?  // hex tint used for cards/badges
+  phone     String?  // for future SMS notifications
+  email     String?  // for future email notifications
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  flights   Flight[]
+}
+
+model Flight {
+  id              String        @id @default(cuid())
+  flightNumber    String        // e.g. "UA123"
+  airline         String?       // resolved later from API ("United Airlines")
+  departureIata   String?       // "SFO"
+  arrivalIata     String?       // "JFK"
+  scheduledDate   DateTime      // user picks departure date
+  notes           String?
+  // Latest snapshot from AviationStack (cached so we don't hit the API
+  // every page render). We refresh on demand and via /api/refresh.
+  status          String?       // "scheduled" | "active" | "landed" | "cancelled" | "incident" | "diverted"
+  scheduledDep    DateTime?
+  estimatedDep    DateTime?
+  actualDep       DateTime?
+  scheduledArr    DateTime?
+  estimatedArr    DateTime?
+  actualArr       DateTime?
+  depGate         String?
+  depTerminal     String?
+  arrGate         String?
+  arrTerminal     String?
+  aircraftIata    String?
+  liveLat         Float?
+  liveLng         Float?
+  liveAltitude    Float?
+  liveSpeed       Float?
+  liveDirection   Float?
+  lastSyncedAt    DateTime?
+  // --- Inbound-aircraft tracking ----------------------------------
+  // The flight number of the previous leg flown by the same aircraft.
+  // If that leg is delayed, this departure almost certainly will be too.
+  // User can fill it in manually (FlightAware shows it) or we try to
+  // auto-detect via tail number on refresh.
+  inboundFlightNumber  String?
+  inboundStatus        String?
+  inboundDepIata       String?
+  inboundArrIata       String?
+  inboundScheduledArr  DateTime?
+  inboundEstimatedArr  DateTime?
+  inboundActualArr     DateTime?
+  inboundLiveLat       Float?
+  inboundLiveLng       Float?
+  // Relations
+  familyMember    FamilyMember? @relation(fields: [familyMemberId], references: [id], onDelete: SetNull)
+  familyMemberId  String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([familyMemberId])
+  @@index([scheduledDate])
+}
