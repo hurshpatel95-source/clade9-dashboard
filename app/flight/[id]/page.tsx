@@ -1,4 +1,3 @@
-import dynamicImport from "next/dynamic";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, ChevronLeft, Plane, Trash2 } from "lucide-react";
@@ -10,6 +9,7 @@ import { InsightCard } from "@/components/InsightCard";
 import { InboundCard } from "@/components/InboundCard";
 import { LocalClock } from "@/components/LocalClock";
 import { TerminalCard } from "@/components/TerminalCard";
+import { FlightMapClient } from "@/components/FlightMapClient";
 import { lookupAirport } from "@/lib/airports";
 import { estimateDriveTime, navUrl } from "@/lib/driveTime";
 import { getTsaInfo } from "@/lib/tsa";
@@ -18,16 +18,6 @@ import { analyzeTurnaround } from "@/lib/flightApi";
 import { getSettings, findInboundByTail } from "@/lib/actions";
 import { fmtDate, fmtTime, fmtTimeWithZone, delayMinutes, relTime, hoursBetweenZones } from "@/lib/utils";
 import { deleteFlight } from "@/lib/actions";
-
-// Leaflet uses window — render only on the client.
-const FlightMap = dynamicImport(() => import("@/components/FlightMap").then((m) => m.FlightMap), {
-  ssr: false,
-  loading: () => (
-    <div className="grid h-72 place-items-center rounded-2xl border hairline text-sm text-zinc-500">
-      Loading map…
-    </div>
-  ),
-});
 
 export const dynamic = "force-dynamic";
 
@@ -183,7 +173,7 @@ export default async function FlightDetail({ params }: { params: Promise<{ id: s
       </header>
 
       {/* --- Map --- */}
-      <FlightMap
+      <FlightMapClient
         origin={dep ? { lat: dep.lat, lng: dep.lng, label: `${dep.iata} — ${dep.city}` } : null}
         destination={arr ? { lat: arr.lat, lng: arr.lng, label: `${arr.iata} — ${arr.city}` } : null}
         livePosition={
